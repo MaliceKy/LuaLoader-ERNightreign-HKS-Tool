@@ -1,0 +1,467 @@
+// ModuleLoader.cpp - Clean & Minimal Version
+#include <windows.h>
+#include <stdio.h>
+#include <string>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+#include <algorithm>
+
+namespace fs = std::filesystem;
+
+// Global state
+static HMODULE g_hModule = nullptr;
+static std::string g_gameScriptPath;
+static std::string g_modulePath;
+static std::string g_basePath;
+static std::string g_configFile;
+static bool g_silentMode = false;
+
+// Clean logging with branding
+static void log(const std::string& msg, bool isError = false) {
+    if (g_silentMode && !isError) return;
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
+        if (isError) {
+            fprintf(f, "  [ERROR] %s\n", msg.c_str());
+        }
+        else {
+            fprintf(f, "  %s\n", msg.c_str());
+        }
+        fflush(f);
+        fclose(f);
+    }
+}
+
+static void logBranding() {
+    FILE* f = nullptr;
+    if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
+        fprintf(f, "\n");
+        fprintf(f, "  ==========================================\n");
+        fprintf(f, "            Lua Loader by Malice\n");
+        fprintf(f, "               v10.0 - Clean\n");
+        fprintf(f, "  ==========================================\n");
+        fprintf(f, "\n");
+        fflush(f);
+        fclose(f);
+    }
+}
+
+static void logSuccess(const std::string& msg) {
+    FILE* f = nullptr;
+    if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
+        fprintf(f, "  [OK] %s\n", msg.c_str());
+        fflush(f);
+        fclose(f);
+    }
+}
+
+// Normalize path separators
+static std::string normalizePath(const std::string& path) {
+    if (path.empty()) return path;
+    try {
+        fs::path p(path);
+        if (p.is_relative()) p = fs::absolute(p);
+        p = p.lexically_normal();
+        std::string result = p.string();
+        std::replace(result.begin(), result.end(), '\\', '/');
+        return result;
+    }
+    catch (...) {
+        return path;
+    }
+}
+
+// Parse TOML configuration
+static bool parseTomlConfig(const std::string& tomlPath) {
+    // base directory of your .me3
+    fs::path configDir = fs::path(tomlPath).parent_path();
+
+    std::ifstream in(tomlPath);
+    if (!in.is_open()) {
+        log("Failed to open config: " + fs::path(tomlPath).filename().string(), true);
+        return false;
+    }
+
+    std::string line;
+    bool foundGameScriptPath = false;
+    bool foundModulePath = false;
+
+    while (std::getline(in, line)) {
+        // trim
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+        if (line.empty() || line[0] == '#' || line[0] == '[') continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+
+        std::string key = line.substr(0, eq);
+        std::string value = line.substr(eq + 1);
+        // trim key & value
+        key.erase(0, key.find_first_not_of(" \t")); key.erase(key.find_last_not_of(" \t") + 1);
+        value.erase(0, value.find_first_not_of(" \t")); value.erase(value.find_last_not_of(" \t") + 1);
+        // strip quotes
+        if (!value.empty() && (value.front() == '"' || value.front() == '\'')) {
+            char q = value.front();
+            auto endQ = value.find(q, 1);
+            if (endQ != std::string::npos)
+                value = value.substr(1, endQ - 1);
+        }
+
+        if (key == "scriptPath" || key == "gameScriptPath") {
+            fs::path p(value);
+            if (p.is_relative()) p = configDir / p;
+            g_gameScriptPath = normalizePath(p.string());
+            foundGameScriptPath = true;
+        }
+        else if (key == "modulePath") {
+            fs::path p(value);
+            if (p.is_relative()) p = configDir / p;
+            g_modulePath = normalizePath(p.string());
+            foundModulePath = true;
+            log("Found modulePath: " + g_modulePath);
+        }
+        else if (key == "silent" && (value == "true" || value == "1")) {
+            g_silentMode = true;
+        }
+    }
+
+    if (!foundGameScriptPath) {
+        log("Missing gameScriptPath in config", true);
+        return false;
+    }
+    if (!foundModulePath) {
+        // default modules ? same folder as your HKS scripts
+        g_modulePath = g_gameScriptPath;
+    }
+
+    return true;
+}
+
+// Find .me3 configuration files
+static std::vector<std::string> findConfigFiles(const fs::path& searchPath, int maxDepth = 2) {
+    std::vector<std::string> configFiles;
+    if (maxDepth <= 0 || !fs::exists(searchPath)) return configFiles;
+
+    try {
+        for (const auto& entry : fs::directory_iterator(searchPath)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".me3") {
+                configFiles.push_back(normalizePath(entry.path().string()));
+            }
+            else if (entry.is_directory() && maxDepth > 1) {
+                auto subFiles = findConfigFiles(entry.path(), maxDepth - 1);
+                configFiles.insert(configFiles.end(), subFiles.begin(), subFiles.end());
+            }
+        }
+    }
+    catch (...) {
+        // Silently continue on filesystem errors
+    }
+
+    return configFiles;
+}
+
+// Initialize paths from TOML configuration
+static bool initializePaths() {
+    char buf[MAX_PATH] = {};
+    if (!GetModuleFileNameA(g_hModule, buf, MAX_PATH)) {
+        log("Failed to get DLL path", true);
+        return false;
+    }
+
+    fs::path dllPath(buf);
+    g_basePath = normalizePath(dllPath.parent_path().string());
+
+    // Look for .me3 files in current directory and parent directory
+    std::vector<fs::path> searchPaths = {
+        g_basePath,
+        dllPath.parent_path().parent_path()
+    };
+
+    std::vector<std::string> configFiles;
+    for (const auto& searchPath : searchPaths) {
+        auto found = findConfigFiles(searchPath, 2);
+        configFiles.insert(configFiles.end(), found.begin(), found.end());
+    }
+
+    if (configFiles.empty()) {
+        log("No .me3 configuration file found", true);
+        return false;
+    }
+
+    // Try to parse the first valid config file
+    for (const auto& configFile : configFiles) {
+        if (parseTomlConfig(configFile)) {
+            g_configFile = configFile;
+            logSuccess("Config loaded: " + fs::path(configFile).filename().string());
+            return true;
+        }
+    }
+
+    log("No valid configuration found", true);
+    return false;
+}
+
+// Validate that configured paths exist
+static bool validatePaths() {
+    // Check gameScriptPath
+    try {
+        if (!fs::exists(g_gameScriptPath) || !fs::is_directory(g_gameScriptPath)) {
+            log("Invalid gameScriptPath: " + g_gameScriptPath, true);
+            return false;
+        }
+    }
+    catch (...) {
+        log("Cannot access gameScriptPath", true);
+        return false;
+    }
+
+    // Check modulePath
+    try {
+        if (!fs::exists(g_modulePath) || !fs::is_directory(g_modulePath)) {
+            g_modulePath = g_gameScriptPath;
+        }
+    }
+    catch (...) {
+        g_modulePath = g_gameScriptPath;
+    }
+
+    return true;
+}
+
+// Helper to do find/replace in a std::string
+static std::string replaceAll(std::string subject,
+    const std::string& search,
+    const std::string& replace)
+{
+    std::string::size_type pos = 0;
+    while ((pos = subject.find(search, pos)) != std::string::npos) {
+        subject.replace(pos, search.length(), replace);
+        pos += replace.length();
+    }
+    return subject;
+}
+
+static void createWorkingSetupScript() {
+    if (g_modulePath.empty()) return;
+
+    std::string loaderDir = g_modulePath + "/_module_loader";
+    std::string setupScript = loaderDir + "/module_loader_setup.lua";
+    std::string flagFile = loaderDir + "/.modules_loaded";
+
+    // Only clear flag if this is a truly fresh start
+    try {
+        if (fs::exists(flagFile)) {
+            // Check if the flag file is from a previous process
+            // For now, we'll leave it and let Lua handle the duplicate check
+            // fs::remove(flagFile);
+            // logMessage("Removed stale flag: " + flagFile);
+        }
+    }
+    catch (const std::exception& e) {
+        // Ignore errors
+    }
+
+    // Prepare directory
+    try {
+        fs::create_directories(loaderDir);
+        if (fs::exists(setupScript)) {
+            fs::remove(setupScript);
+        }
+    }
+    catch (...) {
+        log("Cannot create setup directory", true);
+        return;
+    }
+
+    // Clean Lua template
+    static const char* LUA_TEMPLATE = R"LUASCRIPT(
+-- Lua Loader by Malice - Setup Script
+local FLAG_FILE = "${LOADER_DIR}/.modules_loaded"
+
+-- Check if modules were already loaded this session
+do
+    local f = io.open(FLAG_FILE, "r")
+    if f then 
+        f:close()
+        return -- Just silently return, don't print anything
+    end
+end
+
+function consolePrint(msg)
+    local f = io.open("CONOUT$", "a")
+    if f then f:write("  "..tostring(msg).."\n"); f:close() end
+end
+print = consolePrint
+
+local MODULE_PATH = "${MODULE_PATH}"
+
+local function scanForModules()
+    local mods, p = {}, io.popen('dir "'..MODULE_PATH..'\\\\*.lua" /b 2>nul')
+    if p then
+        for fn in p:lines() do
+            local name = fn:match("(.+)%.lua$")
+            if name ~= "module_loader_setup" then
+                table.insert(mods, name)
+            end
+        end
+        p:close()
+    end
+    return mods
+end
+
+function loadModules()
+    package.path = package.path..";"..MODULE_PATH.."/?.lua"
+    
+    local modules = scanForModules()
+    if #modules == 0 then
+        print("No modules found")
+        return false
+    end
+
+    -- Show loading header with module names
+    print("Loading "..#modules.."/"..#modules.." Modules")
+    for i, m in ipairs(modules) do
+        print(" "..m..".lua")
+    end
+    print("")
+    
+    local loaded = 0
+    for _,m in ipairs(modules) do
+        local ok,res = pcall(require, m)
+        if ok then
+            if type(res)=="table" then _G[m]=res end
+            loaded = loaded + 1
+        else
+            print("[ERROR] Failed to load: "..m)
+        end
+    end
+
+    _G.ModulesLoaded = true
+    _G.LoadedModuleInfo = { count=loaded, total=#modules, modules=modules }
+
+    print("\n[OK] "..loaded.."/"..#modules.." modules loaded successfully")
+
+    local wf = io.open(FLAG_FILE,"w")
+    if wf then wf:close() end
+
+    return loaded > 0
+end
+
+loadModules()
+)LUASCRIPT";
+
+    // Perform replacements
+    std::string lua = LUA_TEMPLATE;
+    lua = replaceAll(lua, "${LOADER_DIR}", loaderDir);
+    lua = replaceAll(lua, "${MODULE_PATH}", g_modulePath);
+
+    // Write file
+    std::ofstream out(setupScript);
+    if (!out.is_open()) {
+        log("Cannot write setup script", true);
+        return;
+    }
+    out << lua;
+    out.close();
+}
+
+// Auto-inject into c0000.hks
+static void injectIntoHksFile() {
+    if (g_gameScriptPath.empty()) return;
+
+    std::string hksPath = g_gameScriptPath + "/c0000.hks";
+
+    try {
+        if (!fs::exists(hksPath) || !fs::is_regular_file(hksPath)) {
+            log("c0000.hks not found at: " + hksPath, true);
+            return;
+        }
+    }
+    catch (...) {
+        log("Cannot access c0000.hks", true);
+        return;
+    }
+
+    // Read current file
+    std::ifstream hksRead(hksPath, std::ios::binary);
+    if (!hksRead.is_open()) {
+        log("Cannot read c0000.hks", true);
+        return;
+    }
+
+    std::string fileContent((std::istreambuf_iterator<char>(hksRead)), std::istreambuf_iterator<char>());
+    hksRead.close();
+
+    // Create injection line
+    std::string setupScriptPath = g_modulePath + "/_module_loader/module_loader_setup.lua";
+    std::string injectionLine = "dofile('" + setupScriptPath + "')";
+
+    // Check if already injected
+    if (fileContent.find(injectionLine) != std::string::npos ||
+        fileContent.find("module_loader_setup.lua") != std::string::npos) {
+        logSuccess("Already integrated with game script");
+        return;
+    }
+
+    // Create backup
+    std::string backupPath = hksPath + ".backup";
+    std::ofstream backup(backupPath, std::ios::binary);
+    if (backup.is_open()) {
+        backup << fileContent;
+        backup.close();
+    }
+
+    // Inject at top
+    std::string newContent = injectionLine + "\n\n" + fileContent;
+
+    // Write modified file
+    std::ofstream hksWrite(hksPath, std::ios::binary);
+    if (!hksWrite.is_open()) {
+        log("Cannot write to c0000.hks", true);
+        return;
+    }
+
+    hksWrite << newContent;
+    hksWrite.close();
+
+    logSuccess("Successfully integrated with game script");
+}
+
+// DLL Entry Point
+BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
+    switch (reason) {
+    case DLL_PROCESS_ATTACH:
+        g_hModule = hMod;
+
+        logBranding();
+
+        if (!initializePaths()) {
+            log("Initialization failed - check your .me3 config file", true);
+            break;
+        }
+
+        if (!validatePaths()) {
+            log("Path validation failed", true);
+            break;
+        }
+
+        if (!g_silentMode) {
+            logSuccess("Paths validated");
+        }
+
+        createWorkingSetupScript();
+        injectIntoHksFile();
+
+        if (!g_silentMode) {
+            log("Ready! Modules will load automatically.\n");
+        }
+        break;
+
+    case DLL_PROCESS_DETACH:
+        // Silent shutdown
+        break;
+    }
+    return TRUE;
+}
