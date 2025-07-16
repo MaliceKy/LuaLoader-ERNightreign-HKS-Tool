@@ -19,15 +19,31 @@ static const char* levelNames[] = {
     "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "BRAND"
 };
 
-void setLogLevel(LogLevel minLevel) { g_minLogLevel = minLevel; }
-LogLevel getLogLevel() { return g_minLogLevel; }
+// Safe way to get level name with bounds checking
+static const char* getSafeLevelName(LogLevel level) {
+    if (level >= 0 && level < (sizeof(levelNames) / sizeof(levelNames[0]))) {
+        return levelNames[level];
+    }
+    return "UNKNOWN";
+}
+
+void setLogLevel(LogLevel minLevel) {
+    g_minLogLevel = minLevel;
+}
+
+LogLevel getLogLevel() {
+    return g_minLogLevel;
+}
 
 void setSilentMode(bool silent) {
     g_silentMode = silent;
     // If silent, only errors and branding will show.
     if (silent) setLogLevel(LOG_ERROR);
 }
-bool isSilentMode() { return g_silentMode; }
+
+bool isSilentMode() {
+    return g_silentMode;
+}
 
 static std::string getTimeString() {
     char buf[16] = {};
@@ -45,7 +61,6 @@ void log(const std::string& msg, LogLevel level, const char* source) {
         return;
 
     std::lock_guard<std::mutex> lock(g_logMutex);
-
     FILE* f = nullptr;
     if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
         if (level == LOG_BRAND) {
@@ -57,7 +72,7 @@ void log(const std::string& msg, LogLevel level, const char* source) {
             fprintf(
                 f, "[%s] [%s]%s%s%s %s\n",
                 timeStr.c_str(),
-                levelNames[level],
+                getSafeLevelName(level),  // Use safe bounds-checked function
                 (source ? " [" : ""),
                 (source ? source : ""),
                 (source ? "]" : ""),

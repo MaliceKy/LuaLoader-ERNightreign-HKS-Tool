@@ -151,6 +151,97 @@ std::string parseConfigPathFromMe3(const fs::path& me3Path) {
     return "";
 }
 
+// Update config file to reset cleanup flag
+bool updateCleanupFlag(const std::string& configPath, bool newValue) {
+    if (!fs::exists(configPath)) {
+        log("Config file not found for cleanup flag update: " + configPath, LOG_ERROR, "ConfigParser");
+        return false;
+    }
+
+    // Read all lines
+    std::ifstream in(configPath);
+    if (!in.is_open()) {
+        log("Failed to open config file for cleanup flag update", LOG_ERROR, "ConfigParser");
+        return false;
+    }
+
+    std::vector<std::string> lines;
+    std::string line;
+    bool flagUpdated = false;
+    int lineNumber = 0;
+
+    while (std::getline(in, line)) {
+        lineNumber++;
+
+        // More flexible detection of the cleanup flag
+        std::string trimmedLine = line;
+        // Remove leading/trailing whitespace
+        trimmedLine.erase(0, trimmedLine.find_first_not_of(" \t"));
+        trimmedLine.erase(trimmedLine.find_last_not_of(" \t") + 1);
+
+        // Check if this line contains cleanupOnNextLaunch (not commented out)
+        if (trimmedLine.find("cleanupOnNextLaunch") != std::string::npos &&
+            trimmedLine.find('=') != std::string::npos &&
+            trimmedLine.find('#') != 0) {  // Not a comment line (doesn't start with #)
+
+            // Extract the part before the equals sign
+            size_t eq = trimmedLine.find('=');
+            std::string key = trimmedLine.substr(0, eq);
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+
+            // Verify it's actually the cleanup flag
+            if (key == "cleanupOnNextLaunch") {
+                // Replace the entire line with the new value
+                lines.push_back("cleanupOnNextLaunch = " + std::string(newValue ? "true" : "false"));
+                flagUpdated = true;
+                log("Updated cleanupOnNextLaunch flag on line " + std::to_string(lineNumber), LOG_DEBUG, "ConfigParser");
+            }
+            else {
+                lines.push_back(line);
+            }
+        }
+        else {
+            lines.push_back(line);
+        }
+    }
+    in.close();
+
+    if (!flagUpdated) {
+        log("cleanupOnNextLaunch flag not found in config file", LOG_WARNING, "ConfigParser");
+        log("Searching for any line containing 'cleanupOnNextLaunch':", LOG_DEBUG, "ConfigParser");
+
+        // Debug: show lines that contain the text
+        for (int i = 0; i < lines.size(); ++i) {
+            if (lines[i].find("cleanupOnNextLaunch") != std::string::npos) {
+                log("Line " + std::to_string(i + 1) + ": " + lines[i], LOG_DEBUG, "ConfigParser");
+            }
+        }
+
+        // Add the flag if it doesn't exist
+        log("Adding cleanupOnNextLaunch flag to config file", LOG_INFO, "ConfigParser");
+        lines.push_back("");
+        lines.push_back("# Added by cleanup system");
+        lines.push_back("cleanupOnNextLaunch = " + std::string(newValue ? "true" : "false"));
+        flagUpdated = true;
+    }
+
+    // Write back to file
+    std::ofstream out(configPath);
+    if (!out.is_open()) {
+        log("Failed to write updated config file", LOG_ERROR, "ConfigParser");
+        return false;
+    }
+
+    for (const auto& outputLine : lines) {
+        out << outputLine << "\n";
+    }
+    out.close();
+
+    log("Updated cleanupOnNextLaunch flag to: " + std::string(newValue ? "true" : "false"), LOG_INFO, "ConfigParser");
+    return true;
+}
+
 bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
     // Store config directory for relative path resolution
     outConfig.configDir = normalizePath(fs::path(tomlPath).parent_path().string());
@@ -265,6 +356,10 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
         else if (key == "backupHKSonLaunch") {
             outConfig.backupHKSonLaunch = parseBoolValue(value);
             log("Backup HKS on launch: " + std::string(outConfig.backupHKSonLaunch ? "enabled" : "disabled"), LOG_INFO, "ConfigParser");
+        }
+        else if (key == "cleanupOnNextLaunch") {
+            outConfig.cleanupOnNextLaunch = parseBoolValue(value);
+            log("Cleanup on next launch: " + std::string(outConfig.cleanupOnNextLaunch ? "enabled" : "disabled"), LOG_INFO, "ConfigParser");
         }
 
         //  String configurations 

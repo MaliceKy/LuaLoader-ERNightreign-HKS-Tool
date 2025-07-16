@@ -160,6 +160,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Cleanup.h" />
     <ClInclude Include="ConfigGenerator.h" />
     <ClInclude Include="ConfigParser.h" />
     <ClInclude Include="Console.h" />
@@ -201,6 +202,7 @@
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Cleanup.cpp" />
     <ClCompile Include="ConfigGenerator.cpp" />
     <ClCompile Include="ConfigParser.cpp" />
     <ClCompile Include="Console.cpp" />

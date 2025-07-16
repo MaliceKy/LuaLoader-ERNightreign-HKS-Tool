@@ -107,7 +107,6 @@ print("Config directory: " .. CONFIG_DIR)
 print("Module path (absolute): " .. MODULE_PATH)
 print("Relative paths resolved from: ${CONFIG_RELATIVE_PATH}")
 print("Module path (relative): ${MODULE_RELATIVE_PATH}")
-print("Current Process ID: " .. getCurrentProcessId())
 print("==========================================")
 print("")
 

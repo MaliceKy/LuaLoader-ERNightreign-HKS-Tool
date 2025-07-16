@@ -22,7 +22,6 @@ void generateDefaultConfigToml(const std::string& configPath) {
 # Generated automatically by LuaLoader
 # Author: Malice
 # ======================================
-
 configVersion = 1
 
 # You can place this file anywhere and set the path in your .me3 file:
@@ -47,21 +46,32 @@ modulePath = "mod/action/script/lua"
 #   info    (normal user info, warnings, errors)  [default]
 #   warning (only warnings and errors)
 #   error   (only errors)
-
 logLevel = "info"
 
 # === HKS Backup Options ===
-backupHKSonLaunch = true         # true/false. If true, backup c0000.hks each launch
+# backupHKSonLaunch behavior:
+#   true  = Always backup c0000.hks on every launch
+#   false = Only backup when actually injecting code (not when already injected)
+backupHKSonLaunch = false        # true/false. If true, backup c0000.hks each launch. If false, only backup when injecting code.
 backupHKSFolder = "HKS-Backups"  # Folder path for HKS backups (relative or absolute). Leave blank for same directory.
+
+# === CLEANUP OPTIONS ===
+# Set to true to remove all LuaLoader artifacts on next launch:
+#   - Removes _module_loader directory
+#   - Removes .modules_loaded flag files  
+#   - Removes LuaLoader injection from c0000.hks (backed up to backupHKSFolder)
+# This flag automatically resets to false after cleanup completes.
+cleanupOnNextLaunch = false      # true/false. Set to true to cleanup and reset project state.
 
 # ======================================
 # --- INSTRUCTIONS ---
 # Edit paths as needed, save this file, and relaunch the game.
 # If you move this config, update the .me3 to point to it with 'luaLoaderConfigPath'.
+# To cleanup the project: set cleanupOnNextLaunch = true and relaunch.
 # ======================================
 )";
-    out.close();
 
+    out.close();
     log("Default configuration file created successfully", LOG_INFO, "ConfigGenerator");
     log("Config file location: " + configPath, LOG_DEBUG, "ConfigGenerator");
 }

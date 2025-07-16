@@ -1,31 +1,31 @@
 // =============================================
 // File: Logger.h
 // Category: Logging/Branding
-// Purpose: Declarations for logging functions, branding messages, and silent mode control.
+// Purpose: Declares logging functions, log levels, and branding.
 // =============================================
 #pragma once
 #include <string>
 
-// Log levels (lower = more verbose, higher = more severe)
+// Log levels with explicit values for bounds checking
 enum LogLevel {
     LOG_TRACE = 0,
-    LOG_DEBUG,
-    LOG_INFO,
-    LOG_WARNING,
-    LOG_ERROR,
-    LOG_BRAND
+    LOG_DEBUG = 1,
+    LOG_INFO = 2,
+    LOG_WARNING = 3,
+    LOG_ERROR = 4,
+    LOG_BRAND = 5
 };
 
-// Set the minimum level that will be logged (default: LOG_INFO).
+// Log level management
 void setLogLevel(LogLevel minLevel);
 LogLevel getLogLevel();
 
-// Set silent mode (forces errors/branding only, for compatibility with your old 'silent')
+// Silent mode (only errors and branding show)
 void setSilentMode(bool silent);
 bool isSilentMode();
 
-// Main log function. Example: log("some msg", LOG_DEBUG, "ConfigParser")
+// Main logging function
 void log(const std::string& msg, LogLevel level = LOG_INFO, const char* source = nullptr);
 
-// Print the loader banner (branding)
+// Branding banner
 void logBranding();

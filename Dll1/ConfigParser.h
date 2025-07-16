@@ -30,7 +30,17 @@ struct LoaderConfig {
     // Backing up HKS file
     bool backupHKSonLaunch = true;
     std::string backupHKSFolder;
+
+    // Cleanup settings
+    bool cleanupOnNextLaunch = false;
 };
 
+// Main config parsing function
 bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig);
+
+// Parse config path from .me3 file
 std::string parseConfigPathFromMe3(const std::filesystem::path& me3Path);
+
+// Updates the cleanupOnNextLaunch flag in the config file
+// Used to reset the flag to false after cleanup completes
+bool updateCleanupFlag(const std::string& configPath, bool newValue);

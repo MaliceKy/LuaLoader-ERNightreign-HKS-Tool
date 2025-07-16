@@ -132,6 +132,9 @@
     <ClInclude Include="Me3Utils.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Cleanup.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="lua_src\lapi.c">
@@ -258,6 +261,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Me3Utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Cleanup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

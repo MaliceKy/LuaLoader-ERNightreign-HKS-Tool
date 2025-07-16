@@ -12,6 +12,7 @@
 #include "FlagFile.h"
 #include "LuaSetup.h"
 #include "HksInjector.h"
+#include "Cleanup.h"  // Add cleanup header
 #include <windows.h>
 #include <cstdlib> // for atexit
 #include <filesystem>
@@ -134,6 +135,63 @@ static bool initializePaths() {
     return true;
 }
 
+// Handle cleanup operations if requested
+static bool handleCleanupIfRequested() {
+    if (!g_config.cleanupOnNextLaunch) {
+        return true; // No cleanup requested, continue normally
+    }
+
+    log("==========================================", LOG_INFO, "LuaLoader");
+    log("Cleanup requested via cleanupOnNextLaunch", LOG_INFO, "LuaLoader");
+    log("==========================================", LOG_INFO, "LuaLoader");
+
+    // DEBUG: Analyze HKS file before cleanup (only in debug mode)
+    if (getLogLevel() <= LOG_DEBUG) {
+        std::string hksPath = g_config.gameScriptPath.absolutePath + "/c0000.hks";
+        log("Analyzing HKS file before cleanup:", LOG_DEBUG, "LuaLoader");
+        Cleanup::debugHksFile(hksPath);
+    }
+
+    // Perform the cleanup
+    bool cleanupSuccess = Cleanup::performFullCleanup(g_config);
+
+    // DEBUG: Analyze HKS file after cleanup (only in debug mode)
+    if (getLogLevel() <= LOG_DEBUG) {
+        std::string hksPath = g_config.gameScriptPath.absolutePath + "/c0000.hks";
+        log("Analyzing HKS file after cleanup:", LOG_DEBUG, "LuaLoader");
+        Cleanup::debugHksFile(hksPath);
+    }
+
+    // Reset the flag in the config file regardless of cleanup result
+    bool flagResetSuccess = updateCleanupFlag(g_config.configFile, false);
+
+    if (!flagResetSuccess) {
+        log("Warning: Failed to reset cleanupOnNextLaunch flag in config", LOG_WARNING, "LuaLoader");
+        log("You may need to manually set cleanupOnNextLaunch = false", LOG_WARNING, "LuaLoader");
+    }
+
+    if (cleanupSuccess) {
+        log("==========================================", LOG_INFO, "LuaLoader");
+        log("Cleanup completed successfully!", LOG_INFO, "LuaLoader");
+        log("Project has been reset to clean state", LOG_INFO, "LuaLoader");
+        log("Restart the application to begin fresh setup", LOG_INFO, "LuaLoader");
+        log("==========================================", LOG_INFO, "LuaLoader");
+
+        // Exit gracefully after cleanup - user should restart
+        return false;
+    }
+    else {
+        log("==========================================", LOG_WARNING, "LuaLoader");
+        log("Cleanup completed with some issues", LOG_WARNING, "LuaLoader");
+        log("Check the logs above for details", LOG_WARNING, "LuaLoader");
+        log("Continuing with normal initialization...", LOG_INFO, "LuaLoader");
+        log("==========================================", LOG_INFO, "LuaLoader");
+
+        // Continue with normal startup even if cleanup had issues
+        return true;
+    }
+}
+
 // DLL Entry Point
 BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
     switch (reason) {
@@ -156,6 +214,12 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
             log("", LOG_ERROR, "LuaLoader");
             log("For custom config location, add to .me3:", LOG_ERROR, "LuaLoader");
             log("  luaLoaderConfigPath = \"path/to/config.toml\"", LOG_ERROR, "LuaLoader");
+            break;
+        }
+
+        // Handle cleanup if requested (this may exit early)
+        if (!handleCleanupIfRequested()) {
+            log("Exiting after cleanup operation", LOG_INFO, "LuaLoader");
             break;
         }
 

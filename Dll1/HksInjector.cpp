@@ -9,8 +9,65 @@
 #include <filesystem>
 #include <fstream>
 #include <ctime>
+#include <sstream>
 
 namespace fs = std::filesystem;
+
+// Universal HKS backup function with context support
+bool createHksBackup(const std::string& hksPath, const LoaderConfig& config, const std::string& context) {
+    if (!fs::exists(hksPath)) {
+        log("Backup target does not exist: " + hksPath, LOG_DEBUG, "HksInjector");
+        return false;
+    }
+
+    // Generate backup filename with consistent date format
+    auto now = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &now);
+
+    char dateStr[32];
+    std::strftime(dateStr, sizeof(dateStr), "%Y-%m-%d_%H-%M-%S", &tm);
+
+    std::ostringstream backupName;
+    backupName << fs::path(hksPath).filename().string() << ".backup_" << dateStr;
+
+    // Add context for why backup was created
+    if (!context.empty()) {
+        backupName << "_" << context;
+    }
+
+    // Determine backup directory using same logic as existing system
+    std::string backupDir;
+    if (config.backupHKSFolder.empty()) {
+        // Use same directory as the original file
+        backupDir = fs::path(hksPath).parent_path().string();
+    }
+    else {
+        // Use configured backup folder (resolve relative to config directory)
+        backupDir = resolvePathWithFallbacks(config.backupHKSFolder, config.configDir);
+    }
+
+    // Ensure backup directory exists
+    try {
+        fs::create_directories(backupDir);
+    }
+    catch (const std::exception& e) {
+        log("Failed to create backup directory: " + std::string(e.what()), LOG_ERROR, "HksInjector");
+        return false;
+    }
+
+    std::string backupPath = normalizePath(backupDir + "/" + backupName.str());
+
+    try {
+        fs::copy_file(hksPath, backupPath, fs::copy_options::overwrite_existing);
+        log("Backup created: " + backupPath, LOG_INFO, "HksInjector");
+        return true;
+    }
+    catch (const std::exception& e) {
+        log("Backup creation failed: " + std::string(e.what()), LOG_ERROR, "HksInjector");
+        return false;
+    }
+}
 
 void injectIntoHksFile(const LoaderConfig& config) {
     if (config.gameScriptPath.absolutePath.empty()) return;
@@ -55,62 +112,26 @@ void injectIntoHksFile(const LoaderConfig& config) {
     std::string fileContent((std::istreambuf_iterator<char>(hksRead)), std::istreambuf_iterator<char>());
     hksRead.close();
 
-    // Create backup with timestamp (ALWAYS runs if enabled, before checking injection)
-    if (config.backupHKSonLaunch) {
-        // Determine backup folder
-        std::string backupDir;
-        if (!config.backupHKSFolder.empty()) {
-            // If relative, resolve relative to config directory
-            backupDir = resolvePathWithFallbacks(config.backupHKSFolder, config.configDir);
-            try {
-                fs::create_directories(backupDir);
-            }
-            catch (const std::exception& e) {
-                log("Failed to create backup directory: " + std::string(e.what()), LOG_WARNING, "HksInjector");
-            }
-            catch (...) {
-                log("Failed to create backup directory: unknown error", LOG_WARNING, "HksInjector");
-            }
-        }
-        else {
-            // Default: same folder as hksPath
-            backupDir = fs::path(hksPath).parent_path().string();
-        }
-
-        // Create human-readable timestamp
-        std::time_t now = std::time(nullptr);
-        std::tm tm;
-        localtime_s(&tm, &now);
-        char timeStr[32];
-        std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d_%H-%M-%S", &tm);
-
-        std::string backupFilename = fs::path(hksPath).filename().string() + ".backup_" + std::string(timeStr);
-        std::string backupPath = normalizePath(backupDir + "/" + backupFilename);
-
-        std::ofstream backup(backupPath, std::ios::binary);
-        if (backup.is_open()) {
-            backup << fileContent;
-            backup.close();
-            log("Backup created at: " + backupPath, LOG_INFO, "HksInjector");
-        }
-        else {
-            log("Failed to create backup at: " + backupPath, LOG_ERROR, "HksInjector");
-        }
-    }
-    else {
-        log("Backup on launch is disabled by config", LOG_DEBUG, "HksInjector");
-    }
-
     // Create injection line using absolute path (required for dofile)
     std::string setupScriptPath = config.modulePath.absolutePath + "/_module_loader/module_loader_setup.lua";
     std::string injectionLine = "dofile('" + setupScriptPath + "')";
 
     // Check if already injected
-    if (fileContent.find(injectionLine) != std::string::npos ||
-        fileContent.find("module_loader_setup.lua") != std::string::npos) {
+    bool alreadyInjected = (fileContent.find(injectionLine) != std::string::npos ||
+        fileContent.find("module_loader_setup.lua") != std::string::npos);
+
+    if (alreadyInjected) {
         log("Already integrated with game script", LOG_INFO, "HksInjector");
+
+        // Only backup if backupHKSonLaunch is true (always backup mode)
+        if (config.backupHKSonLaunch) {
+            createHksBackup(hksPath, config, "launch");
+        }
         return;
     }
+
+    // We're going to inject - backup regardless of setting since we're modifying the file
+    createHksBackup(hksPath, config, "injection");
 
     // Create clean, professional header
     std::string header = "-- ========================================\n";
