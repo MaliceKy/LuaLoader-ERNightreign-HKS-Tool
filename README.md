@@ -1,117 +1,161 @@
-# Lua Loader - Modular Version
+# LuaLoader – Modular Lua for ME3 (Elden Ring Nightreign)
 
-This is the modularized version of the Lua Loader DLL, broken down into logical components for better maintainability and organization.
+**LuaLoader by Malice** - brings plug-and-play modular Lua scripting to mod Engine 3 (Elden Ring Nightreign), with bulletproof injection, smart backups, debug console, and a one-click cleanup for shipping your mod to others with ease.
 
-## File Structure
+---
 
-### Core Components
-- **LuaLoader.cpp** - Main DLL entry point and orchestration
-- **ConfigParser.cpp/h** - Parses .me3/TOML configuration files
-- **ConfigGenerator.cpp/h** - Generates default TOML config files
-- **Me3Utils.cpp/h** - Utilities for manipulating .me3 files
-- **PathUtils.cpp/h** - Path normalization, resolution utilities, and validation
-- **Logger.cpp/h** - Logging functionality, branding, and silent mode control
-- **FlagFile.cpp/h** - Module load tracking with flag files
-- **LuaSetup.cpp/h** - Generates the Lua setup script
-- **HksInjector.cpp/h** - Injects the loader into c0000.hks
+## Table of Contents
 
-## Building
+* [What is LuaLoader?](#what-is-lualoader)
+* [How It Works](#how-it-works)
+* [Features](#features)
+* [Installation & Usage](#installation--usage)
+* [Configuration (`LuaLoader.toml`)](#configuration-lualoadertoml)
+* [How to Clean Up & Ship Your Mod](#how-to-clean-up--ship-your-mod)
+* [File-by-File Overview](#file-by-file-overview)
+* [Development & Debugging](#development--debugging)
+* [FAQ / Gotchas](#faq--gotchas)
+* [License](#license)
 
-### Using CMake (Recommended)
-```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
-```
+---
 
-### Using Visual Studio
-1. Create a new DLL project
-2. Add all .cpp and .h files to the project
-3. Set C++ standard to C++17 or higher
-4. Build in Release mode
+## What is LuaLoader?
 
-### Using Command Line (MSVC)
-```bash
-cl /std:c++17 /LD /O2 /Fe:LuaLoader.dll LuaLoader.cpp ConfigParser.cpp ConfigGenerator.cpp Me3Utils.cpp FlagFile.cpp HksInjector.cpp Logger.cpp LuaSetup.cpp PathUtils.cpp kernel32.lib
-```
+**LuaLoader** lets you distribute and run modular Lua scripts alongside your mod’s assets, directly from within your own folders, using a simple TOML config to handle paths, logging, backup, and cleanup. No hardcoded paths, no messing with other mods. When you're ready to ship, one flag (`cleanupOnNextLaunch`) erases all loader artifacts, resets everything, and leaves just your Lua scripts and assets—clean, portable, ready to upload.
 
-## Module Dependencies
-- **Windows.h** - Windows API functions
-- **filesystem** - C++17 filesystem operations
-- **fstream** - File I/O operations
-- **ctime** - Timestamp generation
-- **algorithm** - String manipulation
+---
 
-## Configuration Format
+## How It Works
 
-### .me3 files
+1. **Injection:** The loader DLL injects a header and a call to a generated Lua script into your `c0000.hks`, setting up your Lua environment.
+2. **Config:** Reads `LuaLoader.toml` for paths, logging, backup settings, and more.
+3. **Modularity:** Loads every `.lua` file in your module folder (excluding the setup script itself) and makes tables globally available.
+4. **Flagging:** Uses a `.modules_loaded` file to track module load state (per process).
+5. **Cleanup:** On request, erases the loader’s traces (scripts, flags, injection), **restores HKS**, and leaves everything ready to upload or ship.
+
+---
+
+## Features
+
+* **Fully modular:** Place all your Lua scripts in any directory, set paths relatively in TOML.
+* **Automatic path resolution:** Relative to `.me3`, current working directory, or wherever you need.
+* **Auto-generated config:** If missing, LuaLoader writes out a complete `LuaLoader.toml` with clear instructions.
+* **Safe HKS backup:** Never lose your `c0000.hks`—backups are auto-created on every injection (or every launch, if configured).
+* **Verbose logging:** Debug, trace, info, warning, and error logs, all configurable.
+* **Debug Console:** Pops up a console for instant script output and debugging.
+* **Easy distribution:** After cleanup, your mod directory contains only what you need—no loader junk.
+* **CI/CD friendly:** Preconfigure TOMLs, run cleanup, and your mod’s zip is ready for Nexus/Thunderstore/anywhere.
+
+---
+
+## Installation & Usage
+
+1. **Copy the DLL:** Drop `LuaLoader.dll` anywhere up to three directories above your `.me3` file.
+2. **Edit or create your `.me3` config** (the loader will scan standard locations and generate `LuaLoader.toml` if missing).
+3. **Set up your folder structure:**
+
+   ```
+   YourMod/
+      mod/
+         action/
+            script/
+               c0000.hks
+               lua/
+                  mymodule1.lua
+                  mymodule2.lua
+   ```
+4. **Launch your game/mod with the DLL loaded.**
+5. **First run:** Loader injects itself, creates configs/scripts, and logs everything to the console.
+
+---
+
+## Configuration (`LuaLoader.toml`)
+
+Here’s what the auto-generated TOML looks like, with some explanation:
+
 ```toml
-# Optional: Custom config path override
-luaLoaderConfigPath = "path/to/custom/LuaLoader.toml"
-```
-
-### LuaLoader.toml files
-```toml
-# Required configuration
+# LuaLoader.toml
 configVersion = 1
+
+# Path to your main HKS scripts (relative or absolute)
 gameScriptPath = "mod/action/script"
+
+# Path to Lua modules (relative to .me3 or absolute, optional)
 modulePath = "mod/action/script/lua"
 
-# Optional settings
-silent = false
-backupHKSonLaunch = true
-backupHKSFolder = "HKS-Backups"
+# Logging level: trace | debug | info | warning | error
+logLevel = "info"
+
+# HKS backup settings
+backupHKSonLaunch = false        # true = backup HKS every launch, false = only when injecting
+backupHKSFolder = "HKS-Backups"  # Where backups are saved
+
+# CLEANUP: set true to remove loader artifacts and restore everything for shipping
+cleanupOnNextLaunch = false
 ```
 
-## Module Interactions
+**All paths** can be relative to the `.me3` file or absolute. Forward slashes or double backslashes work. Spaces are supported.
 
-1. **LuaLoader** initializes the DLL and coordinates all operations
-2. **ConfigParser** reads .me3 files to find config paths and parses TOML configs
-3. **ConfigGenerator** creates default TOML configurations when none exist
-4. **Me3Utils** handles injection of config paths into .me3 files
-5. **PathUtils** resolves paths with fallback strategies and validates directories
-6. **Logger** handles all console output with branding (respects silent mode)
-7. **FlagFile** manages process-specific module loading flags
-8. **LuaSetup** generates the Lua script that loads modules
-9. **HksInjector** modifies c0000.hks to include the loader
+---
 
-## Key Features Preserved
+## How to Clean Up & Ship Your Mod
 
-- **Enhanced path resolution** with multiple fallback strategies
-- **Automatic config generation** with user-friendly defaults
-- **Process ID tracking** to prevent duplicate module loading
-- **Automatic backup creation** before HKS modification
-- **Silent mode support** for clean operation
-- **Comprehensive error handling and logging** with detailed feedback
-- **Flexible config placement** - configs can be anywhere with path override
+**Ready to package and upload?**
+Set `cleanupOnNextLaunch = true` in `LuaLoader.toml` and launch the game/mod once.
 
-## Improved Organization Benefits
+**What happens:**
 
-- **Single Responsibility** - Each file has one clear purpose
-- **Better Maintainability** - Easier to find and modify specific functionality
-- **Cleaner Architecture** - Main loader just orchestrates, doesn't implement details
-- **Improved Testability** - Functions can be tested in isolation
-- **Logical Grouping** - Related functions are organized together
+* `_module_loader/` directory is deleted
+* All `.modules_loaded` flags are removed
+* LuaLoader code is stripped out of `c0000.hks` (original is restored from backup)
+* Your TOML flag resets to `false`
+* You’re left with only your scripts/assets and HKS backup—ready to zip/upload anywhere
 
-## Usage
+**Your users:**
+All they need to do is select the `.me3` file and launch with the DLL. Relative paths mean no configuration is required.
 
-The modular version functions identically to the original:
+---
 
-1. **Place the DLL** in your game directory
-2. **Create a .me3 configuration file** (minimal setup required)
-3. **LuaLoader.toml will be auto-generated** with defaults
-4. **Edit the TOML config** to set your paths and preferences  
-5. **Relaunch the game** - Lua modules will load automatically
+## File-by-File Overview
 
-### First-Time Setup Process
+Here’s what the codebase actually does, **file by file** (high-level, but tells you what’s important):
 
-1. Create basic .me3 file
-2. Launch game - LuaLoader.toml is generated automatically  
-3. Edit LuaLoader.toml with your specific paths
-4. Relaunch game - everything works!
+* **ConfigGenerator.cpp:** Writes a full `LuaLoader.toml` with all supported settings and instructions.
+* **ConfigParser.cpp:** Parses the TOML and `.me3` config files, handles path/flag logic, supports overrides, and validates all required settings.
+* **LuaLoader.cpp:** Orchestrates everything. Scans for configs, initializes paths, injects the loader, handles cleanup, and logs branding.
+* **LuaSetup.cpp:** Generates the actual Lua bootstrap (`module_loader_setup.lua`)—loads every `.lua` file in your modules folder, prints output to the debug console, and writes a flag to prevent redundant loading.
+* **HksInjector.cpp:** Handles injection of loader code into `c0000.hks`, with robust backup and header, and makes sure no duplicate injections happen.
+* **Cleanup.cpp:** Does what it says—erases `_module_loader`, flag files, and LuaLoader’s HKS injection; restores HKS from backup.
+* **Logger.cpp:** Prints color-coded logs to console, supports silent mode, and shows a branding banner.
+* **Console.h/cpp:** Allocates/releases a Windows console for debug prints and script output.
+* **FlagFile.cpp:** Creates, removes, and manages `.modules_loaded` flags for module load state.
 
-For custom config locations, add to your .me3 file:
-```toml
-luaLoaderConfigPath = "D:/My/Custom/Path/MyConfig.toml"
-```
+---
+
+## Development & Debugging
+
+* **Debug output** is sent to the dedicated console window.
+* Use `logLevel = "trace"` for everything, or `"info"` for normal use.
+* All operations (inject, cleanup, backup, flag file, etc.) are logged.
+* If you want silent mode (only errors), set `logLevel = "error"` or use silent mode.
+
+---
+
+## Example Distribution Flow
+
+1. Develop/test with modular scripts and loader DLL present.
+2. Set relative paths in your TOML.
+3. When ready, set `cleanupOnNextLaunch = true` and run the game once.
+4. Zip/upload your cleaned mod directory.
+5. Tell users to select the `.me3` file—done.
+
+---
+
+## Why LuaLoader?
+
+Because it makes scripting the HKS a little more barable:
+
+* You keep your mod clean, modular, and easy to read and maintain.
+* Lua files do not need to be set in the game directory instead can stay in the mod engine folder.
+* Shipping mods is literally one click away if paths are relatively set in the toml.
+
