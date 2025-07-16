@@ -18,30 +18,37 @@ std::string toLower(const std::string& str) {
 }
 
 void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath) {
+    log("Injecting TOML config path into .me3 file", LOG_DEBUG, "Me3Utils");
+    log("Target .me3 file: " + me3Path, LOG_DEBUG, "Me3Utils");
+    log("TOML config path to inject: " + tomlPath, LOG_DEBUG, "Me3Utils");
+
     std::ifstream in(me3Path);
     if (!in.is_open()) {
-        log("Cannot open .me3 for injecting toml path.", LOG_ERROR);
+        log("Cannot open .me3 file for reading: " + me3Path, LOG_ERROR, "Me3Utils");
         return;
     }
 
     std::vector<std::string> lines;
     std::string line;
     bool injected = false;
+    bool foundExistingConfig = false;
 
     // Normalize the path to use forward slashes
     std::string normTomlPath = tomlPath;
     std::replace(normTomlPath.begin(), normTomlPath.end(), '\\', '/');
+    log("Normalized path for injection: " + normTomlPath, LOG_TRACE, "Me3Utils");
 
     // Read file and prepare to rewrite, skipping any existing luaLoaderConfigPath
     while (std::getline(in, line)) {
-        if (line.find("luaLoaderConfigPath") != std::string::npos)
+        if (line.find("luaLoaderConfigPath") != std::string::npos) {
+            log("Found existing luaLoaderConfigPath, removing: " + line, LOG_DEBUG, "Me3Utils");
+            foundExistingConfig = true;
             continue; // Remove any existing line
-
+        }
         lines.push_back(line);
 
         // More robust search for profileVersion line
         std::string lowerLine = toLower(line);
-
         // Remove spaces and check if line starts with profileversion
         std::string trimmedLower = lowerLine;
         trimmedLower.erase(std::remove_if(trimmedLower.begin(), trimmedLower.end(), ::isspace), trimmedLower.end());
@@ -53,7 +60,7 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
             lines.push_back("luaLoaderConfigPath = \"" + normTomlPath + "\"");
             lines.push_back("");
             injected = true;
-            log("Found profileVersion line, injecting config path after it", LOG_OK);
+            log("Found profileVersion line, injecting config path after it", LOG_DEBUG, "Me3Utils");
         }
     }
     in.close();
@@ -63,17 +70,26 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
         lines.push_back("");
         lines.push_back("# --- Added by LuaLoader ---");
         lines.push_back("luaLoaderConfigPath = \"" + normTomlPath + "\"");
-        log("profileVersion line not found, appending config path at end", LOG_WARNING);
+        log("profileVersion line not found, appending config path at end of file", LOG_WARNING, "Me3Utils");
     }
 
     // Write the lines back to the file
     std::ofstream out(me3Path, std::ios::trunc);
     if (!out.is_open()) {
-        log("Cannot open .me3 for writing toml path.", LOG_ERROR);
+        log("Cannot open .me3 file for writing: " + me3Path, LOG_ERROR, "Me3Utils");
         return;
     }
-    for (const auto& l : lines) out << l << "\n";
+
+    for (const auto& l : lines) {
+        out << l << "\n";
+    }
     out.close();
 
-    log("Injected luaLoaderConfigPath into .me3: " + me3Path, LOG_OK);
+    if (foundExistingConfig) {
+        log("Updated existing luaLoaderConfigPath in .me3 file", LOG_INFO, "Me3Utils");
+    }
+    else {
+        log("Added new luaLoaderConfigPath to .me3 file", LOG_INFO, "Me3Utils");
+    }
+    log("Successfully modified .me3 file: " + me3Path, LOG_DEBUG, "Me3Utils");
 }

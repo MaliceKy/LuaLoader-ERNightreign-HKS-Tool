@@ -17,17 +17,17 @@ void clearModuleLoadedFlag(const std::string& modulePath) {
     if (modulePath.empty()) return;
 
     std::string flagFile = getFlagFilePath(modulePath);
-
     try {
         if (fs::exists(flagFile)) {
             fs::remove(flagFile);
-            if (!isSilentMode()) {
-                log("Cleared module loaded flag for fresh reload");
-            }
+            log("Cleared module loaded flag for fresh reload", LOG_DEBUG, "FlagFile");
         }
     }
+    catch (const std::exception& e) {
+        log("Failed to remove module loaded flag: " + std::string(e.what()), LOG_WARNING, "FlagFile");
+    }
     catch (...) {
-        // Silently continue if we can't remove the file
+        log("Failed to remove module loaded flag: unknown error", LOG_WARNING, "FlagFile");
     }
 }
 
@@ -38,12 +38,13 @@ void cleanupFlagFile(const std::string& modulePath) {
     try {
         if (fs::exists(flagFile)) {
             fs::remove(flagFile);
-            if (!isSilentMode()) {
-                log("Cleanup: Removed flag file on process exit");
-            }
+            log("Cleanup: Removed flag file on process exit", LOG_DEBUG, "FlagFile");
         }
     }
+    catch (const std::exception& e) {
+        log("Cleanup failed: " + std::string(e.what()), LOG_TRACE, "FlagFile");
+    }
     catch (...) {
-        // Ignore cleanup errors
+        log("Cleanup failed: unknown error", LOG_TRACE, "FlagFile");
     }
 }

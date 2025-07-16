@@ -49,6 +49,34 @@ bool parseBoolValue(const std::string& value) {
     return (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
 }
 
+// Helper function to parse log level from string
+LogLevel parseLogLevel(const std::string& value) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    if (lower == "trace") return LOG_TRACE;
+    if (lower == "debug") return LOG_DEBUG;
+    if (lower == "info") return LOG_INFO;
+    if (lower == "warning" || lower == "warn") return LOG_WARNING;
+    if (lower == "error") return LOG_ERROR;
+
+    // Default to info if unrecognized
+    return LOG_INFO;
+}
+
+// Helper function to get log level name as string
+std::string getLogLevelName(LogLevel level) {
+    switch (level) {
+    case LOG_TRACE: return "trace";
+    case LOG_DEBUG: return "debug";
+    case LOG_INFO: return "info";
+    case LOG_WARNING: return "warning";
+    case LOG_ERROR: return "error";
+    case LOG_BRAND: return "brand";
+    default: return "info";
+    }
+}
+
 // Helper function to parse key-value pair from line
 bool parseKeyValue(const std::string& line, std::string& key, std::string& value) {
     // Find the first '=' that's not inside quotes
@@ -128,14 +156,12 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
     outConfig.configDir = normalizePath(fs::path(tomlPath).parent_path().string());
     outConfig.configFile = tomlPath;
 
-    if (!isSilentMode()) {
-        log("Config directory: " + outConfig.configDir);
-        log("Parsing config: " + fs::path(tomlPath).filename().string());
-    }
+    log("Config directory: " + outConfig.configDir, LOG_DEBUG, "ConfigParser");
+    log("Parsing config: " + fs::path(tomlPath).filename().string(), LOG_DEBUG, "ConfigParser");
 
     std::ifstream in(tomlPath);
     if (!in.is_open()) {
-        log("Failed to open config: " + fs::path(tomlPath).filename().string(), LOG_ERROR);
+        log("Failed to open config: " + fs::path(tomlPath).filename().string(), LOG_ERROR, "ConfigParser");
         return false;
     }
 
@@ -180,9 +206,7 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
 
         std::string key, value;
         if (!parseKeyValue(line, key, value)) {
-            if (!isSilentMode()) {
-                log("Warning: Invalid syntax on line " + std::to_string(lineNumber) + ": " + line);
-            }
+            log("Warning: Invalid syntax on line " + std::to_string(lineNumber) + ": " + line, LOG_WARNING, "ConfigParser");
             continue;
         }
 
@@ -191,21 +215,28 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
             try {
                 configVersion = std::stoi(value);
                 if (configVersion < 1) {
-                    log("Warning: configVersion must be >= 1, defaulting to 1", LOG_ERROR);
+                    log("Warning: configVersion must be >= 1, defaulting to 1", LOG_WARNING, "ConfigParser");
                     configVersion = 1;
                 }
             }
             catch (const std::exception&) {
-                log("Invalid configVersion value '" + value + "' on line " + std::to_string(lineNumber) + ". Defaulting to 1.", LOG_ERROR);
+                log("Invalid configVersion value '" + value + "' on line " + std::to_string(lineNumber) + ". Defaulting to 1.", LOG_ERROR, "ConfigParser");
                 configVersion = 1;
             }
             continue;
         }
 
+        //  Log level configuration
+        else if (key == "logLevel") {
+            LogLevel newLevel = parseLogLevel(value);
+            setLogLevel(newLevel);
+            log("Log level set to: " + getLogLevelName(newLevel), LOG_INFO, "ConfigParser");
+        }
+
         //  Path configurations 
-        if (key == "scriptPath" || key == "gameScriptPath") {
+        else if (key == "scriptPath" || key == "gameScriptPath") {
             if (value.empty()) {
-                log("Error: " + key + " cannot be empty on line " + std::to_string(lineNumber), LOG_ERROR);
+                log("Error: " + key + " cannot be empty on line " + std::to_string(lineNumber), LOG_ERROR, "ConfigParser");
                 continue;
             }
 
@@ -213,14 +244,12 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
             outConfig.gameScriptPath = PathInfo(value, absolutePath, outConfig.configDir);
             foundGameScriptPath = true;
 
-            if (!isSilentMode()) {
-                log("Game Script Path (relative): " + value);
-                log("Game Script Path (absolute): " + absolutePath);
-            }
+            log("Game Script Path (relative): " + value, LOG_DEBUG, "ConfigParser");
+            log("Game Script Path (absolute): " + absolutePath, LOG_DEBUG, "ConfigParser");
         }
         else if (key == "modulePath") {
             if (value.empty()) {
-                log("Warning: modulePath is empty on line " + std::to_string(lineNumber) + ", will use gameScriptPath");
+                log("Warning: modulePath is empty on line " + std::to_string(lineNumber) + ", will use gameScriptPath", LOG_WARNING, "ConfigParser");
                 continue;
             }
 
@@ -228,76 +257,65 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
             outConfig.modulePath = PathInfo(value, absolutePath, outConfig.configDir);
             foundModulePath = true;
 
-            if (!isSilentMode()) {
-                log("Module Path (relative): " + value);
-                log("Module Path (absolute): " + absolutePath);
-            }
+            log("Module Path (relative): " + value, LOG_DEBUG, "ConfigParser");
+            log("Module Path (absolute): " + absolutePath, LOG_DEBUG, "ConfigParser");
         }
 
         //  Boolean configurations 
-        else if (key == "silent") {
-            outConfig.silentMode = parseBoolValue(value);
-            setSilentMode(outConfig.silentMode);
-            log("Silent mode: " + std::string(outConfig.silentMode ? "enabled" : "disabled"));
-        }
         else if (key == "backupHKSonLaunch") {
             outConfig.backupHKSonLaunch = parseBoolValue(value);
-            log("Backup HKS on launch: " + std::string(outConfig.backupHKSonLaunch ? "enabled" : "disabled"));
+            log("Backup HKS on launch: " + std::string(outConfig.backupHKSonLaunch ? "enabled" : "disabled"), LOG_INFO, "ConfigParser");
         }
 
         //  String configurations 
         else if (key == "backupHKSFolder") {
             outConfig.backupHKSFolder = value;
-            log("Backup folder: " + (value.empty() ? "(same directory)" : value));
+            log("Backup folder: " + (value.empty() ? "(same directory)" : value), LOG_INFO, "ConfigParser");
         }
 
         //  Unknown configuration
         else {
-            if (!isSilentMode()) {
-                log("Warning: Unknown configuration key '" + key + "' on line " + std::to_string(lineNumber));
-            }
+            log("Warning: Unknown configuration key '" + key + "' on line " + std::to_string(lineNumber), LOG_WARNING, "ConfigParser");
         }
     }
 
     // Config version validation (AFTER reading the whole file)
     if (configVersion < 1) {
-        log("Config file is missing a valid configVersion. Please regenerate your config or update it manually.", LOG_ERROR);
+        log("Config file is missing a valid configVersion. Please regenerate your config or update it manually.", LOG_ERROR, "ConfigParser");
         return false;
     }
 
     // Future version compatibility checks
     if (configVersion > 1) {
-        log("Config file version " + std::to_string(configVersion) + " is newer than supported (1). Some features may not work correctly.", LOG_ERROR);
+        log("Config file version " + std::to_string(configVersion) + " is newer than supported (1). Some features may not work correctly.", LOG_WARNING, "ConfigParser");
     }
 
     // Validate required fields
     if (!foundGameScriptPath) {
-        log("Missing required gameScriptPath in config", LOG_ERROR);
-        log("Add: gameScriptPath = \"relative/path/to/script\"", LOG_ERROR);
+        log("Missing required gameScriptPath in config", LOG_ERROR, "ConfigParser");
+        log("Add: gameScriptPath = \"relative/path/to/script\"", LOG_ERROR, "ConfigParser");
         return false;
     }
 
     // Set default modulePath if not specified
     if (!foundModulePath) {
         outConfig.modulePath = outConfig.gameScriptPath;
-        if (!isSilentMode()) {
-            log("No modulePath specified, using gameScriptPath: " + outConfig.modulePath.absolutePath);
-        }
+        log("No modulePath specified, using gameScriptPath: " + outConfig.modulePath.absolutePath, LOG_DEBUG, "ConfigParser");
     }
 
     // Validate paths exist or can be created
     try {
         if (!fs::exists(outConfig.gameScriptPath.absolutePath)) {
-            log("Warning: gameScriptPath does not exist: " + outConfig.gameScriptPath.absolutePath);
+            log("Warning: gameScriptPath does not exist: " + outConfig.gameScriptPath.absolutePath, LOG_WARNING, "ConfigParser");
         }
         if (!fs::exists(outConfig.modulePath.absolutePath)) {
-            log("Warning: modulePath does not exist: " + outConfig.modulePath.absolutePath);
+            log("Warning: modulePath does not exist: " + outConfig.modulePath.absolutePath, LOG_WARNING, "ConfigParser");
         }
     }
     catch (const std::exception& e) {
-        log("Warning: Cannot validate paths: " + std::string(e.what()));
+        log("Warning: Cannot validate paths: " + std::string(e.what()), LOG_WARNING, "ConfigParser");
     }
 
-    log("Config parsed successfully with " + std::to_string(lineNumber) + " lines processed", LOG_OK);
+    log("Config parsed successfully with " + std::to_string(lineNumber) + " lines processed", LOG_INFO, "ConfigParser");
     return true;
 }

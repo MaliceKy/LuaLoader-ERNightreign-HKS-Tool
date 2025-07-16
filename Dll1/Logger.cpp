@@ -5,38 +5,64 @@
 // =============================================
 #include "Logger.h"
 #include <cstdio>
+#include <ctime>
+#include <mutex>
+#include <windows.h>
+#include <string>
+#include <algorithm>
 
+static LogLevel g_minLogLevel = LOG_INFO;
 static bool g_silentMode = false;
+static std::mutex g_logMutex;
+
+static const char* levelNames[] = {
+    "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "BRAND"
+};
+
+void setLogLevel(LogLevel minLevel) { g_minLogLevel = minLevel; }
+LogLevel getLogLevel() { return g_minLogLevel; }
 
 void setSilentMode(bool silent) {
     g_silentMode = silent;
+    // If silent, only errors and branding will show.
+    if (silent) setLogLevel(LOG_ERROR);
+}
+bool isSilentMode() { return g_silentMode; }
+
+static std::string getTimeString() {
+    char buf[16] = {};
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
+    std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
+    return std::string(buf);
 }
 
-bool isSilentMode() {
-    return g_silentMode;
-}
+void log(const std::string& msg, LogLevel level, const char* source) {
+    if (g_silentMode && level != LOG_ERROR && level != LOG_BRAND)
+        return;
+    if (level < g_minLogLevel && level != LOG_ERROR && level != LOG_BRAND)
+        return;
 
-void log(const std::string& msg, LogLevel level) {
-    if (g_silentMode && level != LOG_ERROR) return;
+    std::lock_guard<std::mutex> lock(g_logMutex);
 
     FILE* f = nullptr;
     if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
-        switch (level) {
-        case LOG_OK:
-            fprintf(f, "  [OK] %s\n", msg.c_str());
-            break;
-        case LOG_ERROR:
-            fprintf(f, "  [ERROR] %s\n", msg.c_str());
-            break;
-        case LOG_WARNING:
-            fprintf(f, "  [WARNING] %s\n", msg.c_str());
-            break;
-        case LOG_BRAND:
+        if (level == LOG_BRAND) {
             fprintf(f, "%s", msg.c_str());
-            break;
-        default:
-            fprintf(f, "  %s\n", msg.c_str());
-            break;
+        }
+        else {
+            std::string timeStr = getTimeString();
+            // Format: [HH:MM:SS] [LEVEL][Source] message
+            fprintf(
+                f, "[%s] [%s]%s%s%s %s\n",
+                timeStr.c_str(),
+                levelNames[level],
+                (source ? " [" : ""),
+                (source ? source : ""),
+                (source ? "]" : ""),
+                msg.c_str()
+            );
         }
         fflush(f);
         fclose(f);
@@ -44,15 +70,9 @@ void log(const std::string& msg, LogLevel level) {
 }
 
 void logBranding() {
-    FILE* f = nullptr;
-    if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
-        fprintf(f, "\n");
-        fprintf(f, "  ==========================================\n");
-        fprintf(f, "            Lua Loader by Malice\n");
-        fprintf(f, "      v11.3 - Enhanced Path Resolution\n");
-        fprintf(f, "  ==========================================\n");
-        fprintf(f, "\n");
-        fflush(f);
-        fclose(f);
-    }
+    log("\n"
+        "  ==========================================\n"
+        "            Lua Loader by Malice\n"
+        "      v11.3 - Enhanced Path Resolution\n"
+        "  ==========================================\n\n", LOG_BRAND);
 }

@@ -21,20 +21,32 @@ static std::string replaceAll(std::string subject, const std::string& search, co
 }
 
 void createWorkingSetupScript(const LoaderConfig& config) {
-    if (config.modulePath.absolutePath.empty()) return;
+    if (config.modulePath.absolutePath.empty()) {
+        log("Module path is empty, cannot create setup script", LOG_ERROR, "LuaSetup");
+        return;
+    }
 
     std::string loaderDir = config.modulePath.absolutePath + "/_module_loader";
     std::string setupScript = loaderDir + "/module_loader_setup.lua";
 
+    log("Creating setup script at: " + setupScript, LOG_DEBUG, "LuaSetup");
+
     // prepare directory
     try {
         fs::create_directories(loaderDir);
+        log("Created loader directory: " + loaderDir, LOG_DEBUG, "LuaSetup");
+
         if (fs::exists(setupScript)) {
             fs::remove(setupScript);
+            log("Removed existing setup script", LOG_DEBUG, "LuaSetup");
         }
     }
+    catch (const std::exception& e) {
+        log("Cannot create setup directory '" + loaderDir + "': " + std::string(e.what()), LOG_ERROR, "LuaSetup");
+        return;
+    }
     catch (...) {
-        log("Cannot create setup directory", LOG_ERROR);
+        log("Cannot create setup directory '" + loaderDir + "': unknown error", LOG_ERROR, "LuaSetup");
         return;
     }
 
@@ -89,12 +101,14 @@ if isAlreadyLoaded() then
 end
 
 -- Header with enhanced path information
+print("==========================================")
 print("Module Loader - Enhanced Path Resolution Version")
 print("Config directory: " .. CONFIG_DIR)
 print("Module path (absolute): " .. MODULE_PATH)
 print("Relative paths resolved from: ${CONFIG_RELATIVE_PATH}")
 print("Module path (relative): ${MODULE_RELATIVE_PATH}")
 print("Current Process ID: " .. getCurrentProcessId())
+print("==========================================")
 print("")
 
 -- Scan for .lua modules
@@ -162,9 +176,11 @@ function loadModules()
     print("")
     if loadedCount > 0 then
         print("[OK] " .. loadedCount .. "/" .. #modules .. " modules loaded successfully")
+        print("==========================================")
         return true
     else
         print("[ERROR] No modules loaded successfully")
+        print("==========================================")
         return false
     end
 end
@@ -181,14 +197,17 @@ loadModules()
     lua = replaceAll(lua, "${CONFIG_RELATIVE_PATH}", config.gameScriptPath.relativePath);
     lua = replaceAll(lua, "${MODULE_RELATIVE_PATH}", config.modulePath.relativePath);
 
+    log("Injecting paths into setup script template", LOG_DEBUG, "LuaSetup");
+
     // write out the file
     std::ofstream out(setupScript);
     if (!out.is_open()) {
-        log("Cannot write setup script", LOG_ERROR);
+        log("Cannot write setup script to: " + setupScript, LOG_ERROR, "LuaSetup");
         return;
     }
+
     out << lua;
     out.close();
 
-    log("Setup script created: " + setupScript, LOG_OK);
+    log("Setup script created successfully: " + setupScript, LOG_INFO, "LuaSetup");
 }
