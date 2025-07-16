@@ -160,6 +160,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="ConfigGenerator.h" />
     <ClInclude Include="ConfigParser.h" />
     <ClInclude Include="Console.h" />
     <ClInclude Include="FlagFile.h" />
@@ -195,10 +196,12 @@
     <ClInclude Include="lua_src\lundump.h" />
     <ClInclude Include="lua_src\lvm.h" />
     <ClInclude Include="lua_src\lzio.h" />
+    <ClInclude Include="Me3Utils.h" />
     <ClInclude Include="PathUtils.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ConfigGenerator.cpp" />
     <ClCompile Include="ConfigParser.cpp" />
     <ClCompile Include="Console.cpp" />
     <ClCompile Include="FlagFile.cpp" />
@@ -238,11 +241,11 @@
     <ClCompile Include="lua_src\lutf8lib.c" />
     <ClCompile Include="lua_src\lvm.c" />
     <ClCompile Include="lua_src\lzio.c" />
+    <ClCompile Include="Me3Utils.cpp" />
     <ClCompile Include="PathUtils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="lua_src\Makefile" />
-    <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />

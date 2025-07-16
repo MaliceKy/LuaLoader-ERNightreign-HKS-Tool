@@ -28,6 +28,9 @@ void log(const std::string& msg, LogLevel level) {
         case LOG_ERROR:
             fprintf(f, "  [ERROR] %s\n", msg.c_str());
             break;
+        case LOG_WARNING:
+            fprintf(f, "  [WARNING] %s\n", msg.c_str());
+            break;
         case LOG_BRAND:
             fprintf(f, "%s", msg.c_str());
             break;

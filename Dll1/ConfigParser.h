@@ -5,6 +5,7 @@
 // =============================================
 #pragma once
 #include <string>
+#include <filesystem>
 
 struct PathInfo {
     std::string relativePath;
@@ -18,10 +19,8 @@ struct PathInfo {
 };
 
 struct LoaderConfig {
-
     PathInfo gameScriptPath;
     PathInfo modulePath;
-
     std::string configFile;
     std::string configDir;
 
@@ -34,3 +33,4 @@ struct LoaderConfig {
 };
 
 bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig);
+std::string parseConfigPathFromMe3(const std::filesystem::path& me3Path);

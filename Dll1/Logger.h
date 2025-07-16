@@ -10,7 +10,8 @@ enum LogLevel {
     LOG_INFO,
     LOG_OK,
     LOG_ERROR,
-    LOG_BRAND
+    LOG_BRAND,
+    LOG_WARNING
 };
 
 void log(const std::string& msg, LogLevel level = LOG_INFO);

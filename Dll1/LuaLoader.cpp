@@ -4,6 +4,8 @@
 // Purpose: Orchestrates DLL lifecycle and module loading logic (entry point).
 // =============================================
 #include "Console.h"
+#include "ConfigGenerator.h"
+#include "Me3Utils.h"
 #include "Logger.h"
 #include "PathUtils.h"
 #include "ConfigParser.h"
@@ -32,119 +34,116 @@ static bool initializePaths() {
         log("Failed to get DLL path", LOG_ERROR);
         return false;
     }
-
     fs::path dllPath(buf);
-    std::string basePath = normalizePath(dllPath.parent_path().string());
 
     if (!isSilentMode()) {
-        log("DLL location: " + basePath);
+        log("DLL location: " + normalizePath(dllPath.parent_path().string()));
         log("Searching for .me3 config files...");
     }
 
-    // Enhanced search paths - look in multiple locations
+    // 1. Search for the first .me3 file in standard locations
     std::vector<fs::path> searchPaths = {
-        dllPath.parent_path(),                          // Same directory as DLL
-        dllPath.parent_path().parent_path(),            // Parent directory
-        dllPath.parent_path().parent_path().parent_path(), // Grandparent directory
-        fs::current_path(),                             // Current working directory
-        fs::path("C:/"),                                // Root drive (last resort)
+        dllPath.parent_path(),
+        dllPath.parent_path().parent_path(),
+        dllPath.parent_path().parent_path().parent_path(),
+        fs::current_path(),
+        fs::path("C:/"),
     };
 
-    std::vector<std::string> configFiles;
-    for (const auto& searchPath : searchPaths) {
+    fs::path me3Path;
+    for (const auto& dir : searchPaths) {
         if (!isSilentMode()) {
-            log("Searching: " + normalizePath(searchPath.string()));
+            log("Searching: " + normalizePath(dir.string()));
         }
 
-        auto found = findConfigFiles(searchPath, 2);
-        configFiles.insert(configFiles.end(), found.begin(), found.end());
+        try {
+            if (!fs::exists(dir) || !fs::is_directory(dir)) {
+                continue;
+            }
 
-        // Stop searching if we found configs
-        if (!configFiles.empty()) break;
+            for (const auto& entry : fs::directory_iterator(dir)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".me3") {
+                    me3Path = entry.path();
+                    if (!isSilentMode()) {
+                        log("Found .me3 file: " + me3Path.filename().string());
+                    }
+                    break;
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            if (!isSilentMode()) {
+                log("Cannot access directory " + dir.string() + ": " + e.what());
+            }
+            continue;
+        }
+        if (!me3Path.empty()) break;
     }
 
-    if (configFiles.empty()) {
+    if (me3Path.empty()) {
         log("No .me3 configuration file found!", LOG_ERROR);
         log("Create a .me3 file with gameScriptPath and modulePath", LOG_ERROR);
-        log("Example:", LOG_ERROR);
-        log("  gameScriptPath = \"mod/action/script\"", LOG_ERROR);
-        log("  modulePath = \"mod/action/script/lua\"", LOG_ERROR);
+        log("Search paths checked:", LOG_ERROR);
+        for (const auto& path : searchPaths) {
+            log("  " + path.string(), LOG_ERROR);
+        }
         return false;
     }
 
-    // Try to parse the first valid config file
-    for (const auto& configFile : configFiles) {
+    fs::path configDir = me3Path.parent_path();
+    fs::path configPath;
+
+    // 2. Check for path override in .me3 file
+    std::string overridePath = parseConfigPathFromMe3(me3Path);
+    if (!overridePath.empty()) {
+        configPath = overridePath;
+        // If relative path, resolve it relative to the .me3 file
+        if (configPath.is_relative()) {
+            configPath = configDir / configPath;
+        }
         if (!isSilentMode()) {
-            log("Trying config: " + fs::path(configFile).filename().string());
+            log("Using custom config path from .me3: " + configPath.string());
         }
-
-        if (parseTomlConfig(configFile, g_config)) {
-            log("Config loaded: " + fs::path(configFile).filename().string(), LOG_OK);
-            return true;
+    }
+    else {
+        // 3. Use default path next to .me3 file
+        configPath = configDir / "LuaLoader.toml";
+        if (!isSilentMode()) {
+            log("Using default config path: " + configPath.string());
         }
     }
 
-    log("No valid configuration found", LOG_ERROR);
-    return false;
-}
+    // 4. If config does not exist, generate it
+    if (!fs::exists(configPath)) {
+        log("No LuaLoader.toml config found. Generating default at: " + configPath.string(), LOG_ERROR);
 
-// Enhanced validation with better error reporting
-static bool validatePaths() {
-    bool allValid = true;
-
-    // Validate gameScriptPath
-    try {
-        if (!fs::exists(g_config.gameScriptPath.absolutePath)) {
-            log("Creating gameScriptPath directory: " + g_config.gameScriptPath.absolutePath);
-            fs::create_directories(g_config.gameScriptPath.absolutePath);
+        // Ensure parent directory exists
+        try {
+            fs::create_directories(configPath.parent_path());
+        }
+        catch (const std::exception& e) {
+            log("Failed to create config directory: " + std::string(e.what()), LOG_ERROR);
+            return false;
         }
 
-        if (!fs::is_directory(g_config.gameScriptPath.absolutePath)) {
-            log("gameScriptPath is not a directory: " + g_config.gameScriptPath.absolutePath, LOG_ERROR);
-            log("Relative path was: " + g_config.gameScriptPath.relativePath, LOG_ERROR);
-            log("Resolved from config dir: " + g_config.configDir, LOG_ERROR);
-            allValid = false;
-        }
-        else {
-            log("Game script path validated", LOG_OK);
-            if (!isSilentMode()) {
-                log("  Relative: " + g_config.gameScriptPath.relativePath);
-                log("  Absolute: " + g_config.gameScriptPath.absolutePath);
-            }
-        }
-    }
-    catch (const std::exception& e) {
-        log("Cannot access gameScriptPath: " + std::string(e.what()), LOG_ERROR);
-        log("Relative path: " + g_config.gameScriptPath.relativePath, LOG_ERROR);
-        log("Absolute path: " + g_config.gameScriptPath.absolutePath, LOG_ERROR);
-        allValid = false;
+        generateDefaultConfigToml(configPath.string());
+        injectTomlPathToMe3(me3Path.string(), configPath.string());
+
+        log("Default config generated! Edit and relaunch to set up.", LOG_OK);
+        return false; // Ask user to edit config
     }
 
-    // Validate modulePath
-    try {
-        if (!fs::exists(g_config.modulePath.absolutePath)) {
-            log("Creating modulePath directory: " + g_config.modulePath.absolutePath);
-            fs::create_directories(g_config.modulePath.absolutePath);
-        }
-
-        if (!fs::is_directory(g_config.modulePath.absolutePath)) {
-            log("modulePath is not a directory, using gameScriptPath");
-            g_config.modulePath = g_config.gameScriptPath;
-        }
-        else {
-            log("Module path validated", LOG_OK);
-            if (!isSilentMode()) {
-                log("  Relative: " + g_config.modulePath.relativePath);
-                log("  Absolute: " + g_config.modulePath.absolutePath);
-            }
-        }
-    }
-    catch (const std::exception& e) {
-        log("Cannot access modulePath, using gameScriptPath: " + std::string(e.what()));
-        g_config.modulePath = g_config.gameScriptPath;
+    // 5. Parse the config
+    if (!parseTomlConfig(configPath.string(), g_config)) {
+        log("Config parsing failed. Please check " + configPath.string(), LOG_ERROR);
+        return false;
     }
 
-    return allValid;
+    log("Config loaded: " + configPath.filename().string(), LOG_OK);
+    if (!isSilentMode()) {
+        log("Config directory: " + configDir.string());
+    }
+    return true;
 }
 
 // DLL Entry Point
@@ -159,15 +158,19 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
         logBranding();
 
         if (!initializePaths()) {
-            log("Initialization failed - check your .me3 config file", LOG_ERROR);
-            log("Example .me3 config:", LOG_ERROR);
-            log("  gameScriptPath = \"relative/path/to/script\"", LOG_ERROR);
-            log("  modulePath = \"relative/path/to/modules\"", LOG_ERROR);
-            log("  silent = false", LOG_ERROR);
+            log("Initialization failed - check your configuration", LOG_ERROR);
+            log("", LOG_ERROR);
+            log("Configuration process:", LOG_ERROR);
+            log("1. Create a .me3 file with basic config", LOG_ERROR);
+            log("2. LuaLoader.toml will be auto-generated", LOG_ERROR);
+            log("3. Edit LuaLoader.toml and relaunch", LOG_ERROR);
+            log("", LOG_ERROR);
+            log("For custom config location, add to .me3:", LOG_ERROR);
+            log("  luaLoaderConfigPath = \"path/to/config.toml\"", LOG_ERROR);
             break;
         }
 
-        if (!validatePaths()) {
+        if (!validatePaths(g_config)) {
             log("Path validation had issues, but continuing...", LOG_ERROR);
         }
 
@@ -182,8 +185,8 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
 
         if (!isSilentMode()) {
             log("Ready! Modules will load automatically.");
-            log("Using relative paths from: " + fs::path(g_config.configFile).filename().string());
-            log("Relative paths resolved from config directory: " + g_config.configDir);
+            log("Using config file: " + fs::path(g_config.configFile).filename().string());
+            log("Config directory: " + g_config.configDir);
             log("Flag file will be cleared on each game restart.");
             log("");
         }
