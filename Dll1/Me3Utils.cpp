@@ -1,13 +1,17 @@
-// =============================================
+﻿// =============================================
 // File: Me3Utils.cpp
 // Category: ME3 File Utilities
 // Purpose: Utilities for manipulating .me3 files and injecting configuration paths.
 // =============================================
 #include "Me3Utils.h"
 #include "Logger.h"
+#include "ErrorMessages.h"  // ADDED: For beautiful error messages
 #include <fstream>
 #include <vector>
 #include <algorithm>
+#include <filesystem>  // For relative path conversion
+
+namespace fs = std::filesystem;
 
 // Helper for case-insensitive search
 std::string toLower(const std::string& str) {
@@ -17,6 +21,25 @@ std::string toLower(const std::string& str) {
     return res;
 }
 
+// Convert absolute path to relative path for portability
+std::string makePathRelative(const std::string& me3Path, const std::string& tomlPath) {
+    try {
+        fs::path me3Dir = fs::path(me3Path).parent_path();
+        fs::path tomlFullPath = fs::absolute(tomlPath);
+        fs::path relativePath = fs::relative(tomlFullPath, me3Dir);
+
+        // Convert to forward slashes for consistency
+        std::string result = relativePath.string();
+        std::replace(result.begin(), result.end(), '\\', '/');
+        return result;
+    }
+    catch (const std::exception& e) {
+        log("Warning: Failed to create relative path, using filename only: " + std::string(e.what()), LOG_WARNING, "Me3Utils");
+        // Fallback: just use the filename
+        return fs::path(tomlPath).filename().string();
+    }
+}
+
 void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath) {
     log("Injecting TOML config path into .me3 file", LOG_DEBUG, "Me3Utils");
     log("Target .me3 file: " + me3Path, LOG_DEBUG, "Me3Utils");
@@ -24,7 +47,8 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
 
     std::ifstream in(me3Path);
     if (!in.is_open()) {
-        log("Cannot open .me3 file for reading: " + me3Path, LOG_ERROR, "Me3Utils");
+        // CHANGED: Use beautiful error message instead of basic log
+        log(ErrorMessages::formatMe3ReadError(me3Path, "Unable to open file for reading"), LOG_BRAND);
         return;
     }
 
@@ -33,10 +57,9 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
     bool injected = false;
     bool foundExistingConfig = false;
 
-    // Normalize the path to use forward slashes
-    std::string normTomlPath = tomlPath;
-    std::replace(normTomlPath.begin(), normTomlPath.end(), '\\', '/');
-    log("Normalized path for injection: " + normTomlPath, LOG_TRACE, "Me3Utils");
+    // Convert to relative path instead of just normalizing
+    std::string pathToStore = makePathRelative(me3Path, tomlPath);
+    log("Converted to relative path: " + pathToStore, LOG_DEBUG, "Me3Utils");
 
     // Read file and prepare to rewrite, skipping any existing luaLoaderConfigPath
     while (std::getline(in, line)) {
@@ -56,8 +79,8 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
         if (!injected && (lowerLine.find("profileversion") != std::string::npos ||
             trimmedLower.find("profileversion=") == 0)) {
             lines.push_back("");
-            lines.push_back("# LuaLoader Toml Path Configuration (paths can be relative (to .me3 file) or absolute)");
-            lines.push_back("luaLoaderConfigPath = \"" + normTomlPath + "\"");
+            lines.push_back("# LuaLoader Configuration (relative path for portability)");
+            lines.push_back("luaLoaderConfigPath = \"" + pathToStore + "\"");
             lines.push_back("");
             injected = true;
             log("Found profileVersion line, injecting config path after it", LOG_DEBUG, "Me3Utils");
@@ -69,17 +92,17 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
     if (!injected) {
         lines.push_back("");
         lines.push_back("# --- Added by LuaLoader ---");
-        lines.push_back("luaLoaderConfigPath = \"" + normTomlPath + "\"");
+        lines.push_back("luaLoaderConfigPath = \"" + pathToStore + "\"");
         log("profileVersion line not found, appending config path at end of file", LOG_WARNING, "Me3Utils");
     }
 
     // Write the lines back to the file
     std::ofstream out(me3Path, std::ios::trunc);
     if (!out.is_open()) {
-        log("Cannot open .me3 file for writing: " + me3Path, LOG_ERROR, "Me3Utils");
+        // CHANGED: Use beautiful error message instead of basic log
+        log(ErrorMessages::formatMe3WriteError(me3Path, "Unable to open file for writing"), LOG_BRAND);
         return;
     }
-
     for (const auto& l : lines) {
         out << l << "\n";
     }
@@ -91,5 +114,5 @@ void injectTomlPathToMe3(const std::string& me3Path, const std::string& tomlPath
     else {
         log("Added new luaLoaderConfigPath to .me3 file", LOG_INFO, "Me3Utils");
     }
-    log("Successfully modified .me3 file: " + me3Path, LOG_DEBUG, "Me3Utils");
+    log("Successfully modified .me3 file with relative path: " + pathToStore, LOG_INFO, "Me3Utils");
 }

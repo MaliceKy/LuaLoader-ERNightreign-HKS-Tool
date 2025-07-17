@@ -27,5 +27,8 @@ bool isSilentMode();
 // Main logging function
 void log(const std::string& msg, LogLevel level = LOG_INFO, const char* source = nullptr);
 
-// Branding banner
-void logBranding();
+// Branding functions
+void logBranding();           // Main branding banner
+void logInitBranding();       // Initialization start banner
+void logSuccessBranding();    // Success completion banner
+void logErrorBranding();      // Error state banner

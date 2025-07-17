@@ -44,3 +44,8 @@ std::string parseConfigPathFromMe3(const std::filesystem::path& me3Path);
 // Updates the cleanupOnNextLaunch flag in the config file
 // Used to reset the flag to false after cleanup completes
 bool updateCleanupFlag(const std::string& configPath, bool newValue);
+
+
+// Validates HKS file before backup
+// Logs result and errors internall
+bool validateHKSForBackup(const std::string& hksPath);

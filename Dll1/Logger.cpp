@@ -4,6 +4,7 @@
 // Purpose: Implements logging output, branding banner, and silent mode logic.
 // =============================================
 #include "Logger.h"
+#include "BrandingMessages.h"
 #include <cstdio>
 #include <ctime>
 #include <mutex>
@@ -11,22 +12,40 @@
 #include <string>
 #include <algorithm>
 
+// Global logging state
 static LogLevel g_minLogLevel = LOG_INFO;
 static bool g_silentMode = false;
 static std::mutex g_logMutex;
 
+// Log level name mapping
 static const char* levelNames[] = {
     "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "BRAND"
 };
 
-// Safe way to get level name with bounds checking
+// Helper function to safely get level name with bounds checking
 static const char* getSafeLevelName(LogLevel level) {
-    if (level >= 0 && level < (sizeof(levelNames) / sizeof(levelNames[0]))) {
+    const size_t numLevels = sizeof(levelNames) / sizeof(levelNames[0]);
+
+    if (level >= 0 && level < static_cast<int>(numLevels)) {
         return levelNames[level];
     }
     return "UNKNOWN";
 }
 
+// Helper function to generate timestamp string
+static std::string getTimeString() {
+    char timeBuffer[16] = {};
+    std::time_t currentTime = std::time(nullptr);
+    std::tm timeStruct;
+
+    if (localtime_s(&timeStruct, &currentTime) == 0) {
+        std::strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeStruct);
+    }
+
+    return std::string(timeBuffer);
+}
+
+// Log level management functions
 void setLogLevel(LogLevel minLevel) {
     g_minLogLevel = minLevel;
 }
@@ -35,59 +54,72 @@ LogLevel getLogLevel() {
     return g_minLogLevel;
 }
 
+// Silent mode management functions
 void setSilentMode(bool silent) {
     g_silentMode = silent;
-    // If silent, only errors and branding will show.
-    if (silent) setLogLevel(LOG_ERROR);
+
+    // In silent mode, only show errors and branding
+    if (silent) {
+        setLogLevel(LOG_ERROR);
+    }
 }
 
 bool isSilentMode() {
     return g_silentMode;
 }
 
-static std::string getTimeString() {
-    char buf[16] = {};
-    std::time_t t = std::time(nullptr);
-    std::tm tm;
-    localtime_s(&tm, &t);
-    std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
-    return std::string(buf);
-}
-
-void log(const std::string& msg, LogLevel level, const char* source) {
-    if (g_silentMode && level != LOG_ERROR && level != LOG_BRAND)
+// Core logging function
+void log(const std::string& message, LogLevel level, const char* source) {
+    // Filter messages based on silent mode and log level
+    if (g_silentMode && level != LOG_ERROR && level != LOG_BRAND) {
         return;
-    if (level < g_minLogLevel && level != LOG_ERROR && level != LOG_BRAND)
-        return;
+    }
 
+    if (level < g_minLogLevel && level != LOG_ERROR && level != LOG_BRAND) {
+        return;
+    }
+
+    // Thread-safe logging
     std::lock_guard<std::mutex> lock(g_logMutex);
-    FILE* f = nullptr;
-    if (fopen_s(&f, "CONOUT$", "a") == 0 && f) {
+
+    FILE* consoleFile = nullptr;
+    if (fopen_s(&consoleFile, "CONOUT$", "a") == 0 && consoleFile) {
         if (level == LOG_BRAND) {
-            fprintf(f, "%s", msg.c_str());
+            // Branding messages are printed as-is without formatting
+            fprintf(consoleFile, "%s", message.c_str());
         }
         else {
-            std::string timeStr = getTimeString();
-            // Format: [HH:MM:SS] [LEVEL][Source] message
-            fprintf(
-                f, "[%s] [%s]%s%s%s %s\n",
-                timeStr.c_str(),
-                getSafeLevelName(level),  // Use safe bounds-checked function
+            // Regular log messages with timestamp and level formatting
+            std::string timestamp = getTimeString();
+
+            fprintf(consoleFile, "[%s] [%s]%s%s%s %s\n",
+                timestamp.c_str(),
+                getSafeLevelName(level),
                 (source ? " [" : ""),
                 (source ? source : ""),
                 (source ? "]" : ""),
-                msg.c_str()
+                message.c_str()
             );
         }
-        fflush(f);
-        fclose(f);
+
+        fflush(consoleFile);
+        fclose(consoleFile);
     }
 }
 
+// Branding functions using the BrandingMessages system
 void logBranding() {
-    log("\n"
-        "  ==========================================\n"
-        "            Lua Loader by Malice\n"
-        "      v11.3 - Enhanced Path Resolution\n"
-        "  ==========================================\n\n", LOG_BRAND);
+    log(BrandingMessages::formatMainBranding(), LOG_BRAND);
+}
+
+void logInitBranding() {
+    log(BrandingMessages::formatInitBranding(), LOG_BRAND);
+}
+
+void logSuccessBranding() {
+    log(BrandingMessages::formatSuccessBranding(), LOG_BRAND);
+}
+
+void logErrorBranding() {
+    log(BrandingMessages::formatErrorBranding(), LOG_BRAND);
 }

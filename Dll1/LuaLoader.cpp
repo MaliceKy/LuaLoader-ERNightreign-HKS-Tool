@@ -199,12 +199,18 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
         log("DLL_PROCESS_ATTACH - Starting initialization", LOG_TRACE, "LuaLoader");
 
         InitConsole();
-
         g_hModule = hMod;
 
+        // Show main branding banner
         logBranding();
 
+        // Show initialization start banner
+        logInitBranding();
+
         if (!initializePaths()) {
+            // Show error branding banner
+            logErrorBranding();
+
             log("Initialization failed - check your configuration", LOG_ERROR, "LuaLoader");
             log("", LOG_ERROR, "LuaLoader");
             log("Configuration process:", LOG_ERROR, "LuaLoader");
@@ -240,9 +246,11 @@ BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID) {
         // Register cleanup function for process exit
         atexit(cleanup);
 
+        // Show success branding banner
+        logSuccessBranding();
+
         log("Initialization complete - ready for module loading", LOG_INFO, "LuaLoader");
         log("Config: " + fs::path(g_config.configFile).filename().string() + " | Modules will load when game script runs", LOG_INFO, "LuaLoader");
-        log("==========================================", LOG_INFO, "LuaLoader");
         break;
 
     case DLL_PROCESS_DETACH:

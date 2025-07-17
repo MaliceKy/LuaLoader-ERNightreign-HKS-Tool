@@ -135,6 +135,12 @@
     <ClInclude Include="Cleanup.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="ErrorMessages.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="BrandingMessages.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="lua_src\lapi.c">
@@ -264,6 +270,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Cleanup.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ErrorMessages.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BrandingMessages.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

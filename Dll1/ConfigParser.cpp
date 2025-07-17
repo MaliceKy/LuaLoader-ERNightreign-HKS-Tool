@@ -108,6 +108,51 @@ bool parseKeyValue(const std::string& line, std::string& key, std::string& value
     return !key.empty();
 }
 
+// Helper function to validate HKS file for backup
+bool validateHKSForBackup(const std::string& hksPath) {
+    try {
+        // Check if file exists
+        if (!fs::exists(hksPath)) {
+            log("HKS file does not exist, skipping backup: " + hksPath, LOG_WARNING, "ConfigParser");
+            return false;
+        }
+
+        // Check if it's a regular file
+        if (!fs::is_regular_file(hksPath)) {
+            log("HKS path is not a regular file, skipping backup: " + hksPath, LOG_WARNING, "ConfigParser");
+            return false;
+        }
+
+        // Check if file has content (not empty)
+        std::error_code ec;
+        auto fileSize = fs::file_size(hksPath, ec);
+        if (ec) {
+            log("Cannot determine HKS file size, skipping backup: " + hksPath + " - " + ec.message(), LOG_WARNING, "ConfigParser");
+            return false;
+        }
+
+        if (fileSize == 0) {
+            log("HKS file is empty, skipping backup: " + hksPath, LOG_WARNING, "ConfigParser");
+            return false;
+        }
+
+        // Check if file is readable
+        std::ifstream testFile(hksPath, std::ios::binary);
+        if (!testFile.is_open()) {
+            log("Cannot read HKS file, skipping backup: " + hksPath, LOG_WARNING, "ConfigParser");
+            return false;
+        }
+        testFile.close();
+
+        log("HKS file validated for backup: " + hksPath + " (size: " + std::to_string(fileSize) + " bytes)", LOG_DEBUG, "ConfigParser");
+        return true;
+    }
+    catch (const std::exception& e) {
+        log("Error validating HKS file for backup: " + hksPath + " - " + std::string(e.what()), LOG_ERROR, "ConfigParser");
+        return false;
+    }
+}
+
 // Parse config path from .me3 file - moved from LuaLoader.cpp
 std::string parseConfigPathFromMe3(const fs::path& me3Path) {
     std::ifstream me3in(me3Path);
@@ -354,8 +399,16 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
 
         //  Boolean configurations 
         else if (key == "backupHKSonLaunch") {
-            outConfig.backupHKSonLaunch = parseBoolValue(value);
-            log("Backup HKS on launch: " + std::string(outConfig.backupHKSonLaunch ? "enabled" : "disabled"), LOG_INFO, "ConfigParser");
+            bool requestedBackup = parseBoolValue(value);
+            outConfig.backupHKSonLaunch = requestedBackup;
+
+            if (requestedBackup) {
+                log("Backup HKS on launch: requested", LOG_INFO, "ConfigParser");
+                log("Note: HKS backup will only occur if valid HKS files are found", LOG_INFO, "ConfigParser");
+            }
+            else {
+                log("Backup HKS on launch: disabled", LOG_INFO, "ConfigParser");
+            }
         }
         else if (key == "cleanupOnNextLaunch") {
             outConfig.cleanupOnNextLaunch = parseBoolValue(value);
@@ -409,6 +462,11 @@ bool parseTomlConfig(const std::string& tomlPath, LoaderConfig& outConfig) {
     }
     catch (const std::exception& e) {
         log("Warning: Cannot validate paths: " + std::string(e.what()), LOG_WARNING, "ConfigParser");
+    }
+
+    // Additional validation for HKS backup if enabled
+    if (outConfig.backupHKSonLaunch) {
+        log("HKS backup is enabled - validation will occur during backup process", LOG_DEBUG, "ConfigParser");
     }
 
     log("Config parsed successfully with " + std::to_string(lineNumber) + " lines processed", LOG_INFO, "ConfigParser");
