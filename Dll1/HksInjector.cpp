@@ -248,8 +248,6 @@ void injectIntoHksFile(const LoaderConfig& config) {
         log("Successfully integrated with game script", LOG_INFO, "HksInjector");
         log("Injection uses absolute path: " + setupScriptPath, LOG_DEBUG, "HksInjector");
         log("Config uses relative paths for portability", LOG_DEBUG, "HksInjector");
-
-        // Final success confirmation log
         log("Injection operation completed successfully for " + fs::path(hksPath).filename().string(), LOG_INFO, "HksInjector");
     }
     catch (const std::ios_base::failure& e) {
